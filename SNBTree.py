@@ -1,127 +1,157 @@
+class Interval:
+    def __init__(self, center, length):
+        self.center = center
+        self.length = length
+        self.start = center - length
+        self.end = center + length
+    def __repr__(self):
+        return f"[{self.start}, {self.end}]"
+
+class Node:
+    def __init__(self, is_leaf=False):
+        self.is_leaf = is_leaf
+        self.keys = []
+        self.children = []
+        self.next = None
+        self.prev = None
+
 class SNBTree:
-    class Node:
-        def __init__(self, leaf=False):
-            self.leaf = leaf
-            self.keys = []       
-            self.children = []    
-            self.intervals = []    
-            self.parent = None   
-
-    class Interval:
-        def __init__(self, center, length):
-            """根据中心和长度初始化区间，计算起始和结束位置"""
-            self.center = center
-            self.length = length
-            self.start = center - length / 2.0
-            self.end = center + length / 2.0
-
-        def __repr__(self):
-            return f"[{self.start}, {self.end}]"
-
-    def __init__(self, order=4):
-        self.order = order
-        self.max_children = order               
-        self.max_leaf_items = order - 1         
-        self.root = self.Node(leaf=True)
-
-    def _find_leaf(self, node, key):
-        if node.leaf:
-            return node
-        i = 0
-        while i < len(node.keys) and key >= node.keys[i]:
-            i += 1
-        return self._find_leaf(node.children[i], key)
+    def __init__(self, degree=4):
+        self.root = Node(is_leaf=True)
+        self.degree = degree
 
     def insert(self, center, length):
-        interval = self.Interval(center, length)
-        leaf = self._find_leaf(self.root, interval.start)
+        interval = Interval(center, length)
+        res = self._insert_recursive(self.root, interval)
+        if res:
+            key, new_node = res
+            new_root = Node(is_leaf=False)
+            new_root.keys = [key]
+            new_root.children = [self.root, new_node]
+            self.root = new_root
+
+    def _insert_recursive(self, node, interval):
+        if node.is_leaf:
+            return self._insert_into_leaf(node, interval)
         i = 0
-        while i < len(leaf.intervals) and leaf.intervals[i].start < interval.start:
+        while i < len(node.keys) and interval.start >= node.keys[i]:
             i += 1
-        leaf.intervals.insert(i, interval)
-        if len(leaf.intervals) > self.max_leaf_items:
-            self._split_leaf(leaf)
-
-    def _split_leaf(self, leaf):
-        new_leaf = self.Node(leaf=True)
-        new_leaf.next = leaf.next
-        leaf.next = new_leaf
-        total = len(leaf.intervals)
-        left_count = (total + 1) // 2         
-        right_count = total - left_count       
-        new_leaf.intervals = leaf.intervals[left_count:]   
-        leaf.intervals = leaf.intervals[:left_count]       
-        new_key = new_leaf.intervals[0].start 
-        new_leaf.parent = leaf.parent
-        if leaf.parent is None:
-            new_root = self.Node(leaf=False)
-            new_root.keys = [new_key]
-            new_root.children = [leaf, new_leaf]
-            leaf.parent = new_root
-            new_leaf.parent = new_root
-            self.root = new_root
-        else:
-            parent = leaf.parent
-            idx = parent.children.index(leaf)
-            parent.children.insert(idx + 1, new_leaf)
-            parent.keys.insert(idx, new_key)
-            new_leaf.parent = parent
-            if len(parent.children) > self.max_children:
-                self._split_internal(parent)
-
-    def _split_internal(self, node):
-        new_node = self.Node(leaf=False)
-        total_children = len(node.children)
-        left_count = (total_children + 1) // 2    
-        right_count = total_children - left_count
-        mid_key_index = left_count - 1
-        up_key = node.keys[mid_key_index]        
-        left_keys = node.keys[:mid_key_index]
-        right_keys = node.keys[mid_key_index + 1:]
-        left_children = node.children[:left_count]
-        right_children = node.children[left_count:]
-        node.keys = left_keys
-        node.children = left_children
-        for child in node.children:
-            child.parent = node
-        new_node.keys = right_keys
-        new_node.children = right_children
-        for child in new_node.children:
-            child.parent = new_node
-        new_node.parent = node.parent
-        if node.parent is None:
-            new_root = self.Node(leaf=False)
-            new_root.keys = [up_key]
-            new_root.children = [node, new_node]
-            node.parent = new_root
-            new_node.parent = new_root
-            self.root = new_root
-        else:
-            parent = node.parent
-            idx = parent.children.index(node)
-            parent.children.insert(idx + 1, new_node)
-            parent.keys.insert(idx, up_key)
-            new_node.parent = parent
-            if len(parent.children) > self.max_children:
-                self._split_internal(parent)
-
-    def find(self, key):
-        leaf = self._find_leaf(self.root, key)
-        for interval in leaf.intervals:
-            if interval.start <= key <= interval.end:
-                return interval
+        res = self._insert_recursive(node.children[i], interval)
+        if not res:
+            return None
+        key, new_child = res
+        j = 0
+        while j < len(node.keys) and key >= node.keys[j]:
+            j += 1
+        node.keys.insert(j, key)
+        node.children.insert(j+1, new_child)
+        if len(node.children) > self.degree:
+            return self._split_internal(node)
         return None
 
-    def range_query(self, query_start, query_end):
-        result = []
-        leaf = self._find_leaf(self.root, query_start)
-        # 从该叶节点开始顺序扫描
-        while leaf is not None:
-            for interval in leaf.intervals:
-                if interval.start > query_end:
-                    return result
-                if interval.end < query_start:
+    def _insert_into_leaf(self, leaf, interval):
+        i = 0
+        while i < len(leaf.keys) and leaf.keys[i].start < interval.start:
+            i += 1
+        leaf.keys.insert(i, interval)
+        if len(leaf.keys) < self.degree:
+            return None
+        mid = (len(leaf.keys) + 1) // 2
+        new_leaf = Node(is_leaf=True)
+        new_leaf.keys = leaf.keys[mid:]
+        leaf.keys = leaf.keys[:mid]
+        new_leaf.next = leaf.next
+        if new_leaf.next:
+            new_leaf.next.prev = new_leaf
+        leaf.next = new_leaf
+        new_leaf.prev = leaf
+        return (new_leaf.keys[0].start, new_leaf)
+
+    def _split_internal(self, node):
+        mid = len(node.keys) // 2
+        key_to_parent = node.keys[mid]
+        new_node = Node(is_leaf=False)
+        new_node.keys = node.keys[mid+1:]
+        new_node.children = node.children[mid+1:]
+        node.keys = node.keys[:mid]
+        node.children = node.children[:mid+1]
+        return (key_to_parent, new_node)
+
+    def find(self, key):
+        node = self.root
+        while not node.is_leaf:
+            i = 0
+            while i < len(node.keys) and key >= node.keys[i]:
+                i += 1
+            node = node.children[i]
+        lo, hi = 0, len(node.keys)
+        while lo < hi:
+            mid = (lo + hi) // 2
+            if node.keys[mid].start <= key:
+                lo = mid + 1
+            else:
+                hi = mid
+        idx = lo
+        for j in range(idx-1, -1, -1):
+            interval = node.keys[j]
+            if interval.start <= key <= interval.end:
+                return interval
+        cur = node.prev
+        while cur:
+            for j in range(len(cur.keys)-1, -1, -1):
+                interval = cur.keys[j]
+                if interval.start <= key <= interval.end:
+                    return interval
+            cur = cur.prev
+        return None
+
+    def range_query(self, start, end):
+        results = []
+        node = self.root
+        while not node.is_leaf:
+            i = 0
+            while i < len(node.keys) and start >= node.keys[i]:
+                i += 1
+            node = node.children[i]
+        lo, hi = 0, len(node.keys)
+        while lo < hi:
+            mid = (lo + hi) // 2
+            if node.keys[mid].start < start:
+                lo = mid + 1
+            else:
+                hi = mid
+        idx = lo
+        back_list = []
+        cur_leaf = node
+        j = idx - 1
+        while True:
+            if j < 0:
+                if cur_leaf.prev:
+                    cur_leaf = cur_leaf.prev
+                    j = len(cur_leaf.keys) - 1
                     continue
-                result.append(interval)
-            leaf = leaf.next
-        return result
+                break
+            interval = cur_leaf.keys[j]
+            if interval.end >= start:
+                back_list.append(interval)
+            j -= 1
+        back_list.reverse()
+        results.extend(back_list)
+        cur_leaf = node
+        i = idx
+        while True:
+            if i < len(cur_leaf.keys):
+                interval = cur_leaf.keys[i]
+                if interval.start > end:
+                    break
+                if interval.end >= start:
+                    results.append(interval)
+                i += 1
+                continue
+            if cur_leaf.next is None:
+                break
+            cur_leaf = cur_leaf.next
+            i = 0
+            if cur_leaf.keys[0].start > end:
+                break
+        return results
